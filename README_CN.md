@@ -434,7 +434,7 @@ go run ./cmd/cpa-manager-plus
 - **CPA 控制面板方案没有监控/价格/导入导出**：这是预期行为，这些是完整 Docker / Manager Server 托管面板功能。
 - **容器重建后数据丢失**：确认 `/data` 已挂载到 Docker volume 或宿主机目录。
 - **从 CPA-Manager 迁移后看不到旧数据**：确认 Plus 容器挂载的是旧 `/data` volume，而不是新建的 `cpa-manager-plus-data` 空 volume。
-- **管理员密钥丢失**：已有 `settings.admin_credential_v1` 时，单独设置 `CPA_MANAGER_ADMIN_KEY` 不会覆盖旧凭证。按迁移指南的离线恢复步骤处理，并先备份 `/data`。
+- **管理员密钥丢失**：已有 `settings.admin_credential_v1` 时，单独设置 `CPA_MANAGER_ADMIN_KEY` 不会覆盖旧凭证。请先停止 Manager Server、备份 `/data`，再按 [重置 Manager Server 管理员密钥](docs/reset-admin-key.zh-CN.md) 处理。
 - **完整 FAQ**：查看 [CPA Manager Plus 常见问题与解决方案](https://github.com/seakee/CPA-Manager-Plus/wiki/CPA%E2%80%90Manager-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88) 或 [English FAQ and Troubleshooting](https://github.com/seakee/CPA-Manager-Plus/wiki/CPA-Manager-Plus-FAQ-and-Troubleshooting)。
 
 ## 参考
@@ -442,6 +442,7 @@ go run ./cmd/cpa-manager-plus
 - CLIProxyAPI: https://github.com/router-for-me/CLIProxyAPI
 - Redis 用量队列文档: https://help.router-for.me/management/redis-usage-queue.html
 - CPA-Manager 到 CPA Manager Plus 迁移指南: [docs/migration-from-cpa-manager.zh-CN.md](docs/migration-from-cpa-manager.zh-CN.md)
+- 重置 Manager Server 管理员密钥: [docs/reset-admin-key.zh-CN.md](docs/reset-admin-key.zh-CN.md)
 - 发布前检查清单: [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md)
 
 ## 致谢
