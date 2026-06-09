@@ -20,6 +20,7 @@ export type AuthFileFieldsPatch = {
   priority?: number;
   note?: string;
 };
+export type AuthFilePatchAuthIndex = string | number;
 type AuthFileBatchFailure = { name: string; error: string };
 type AuthFileBatchUploadResponse = {
   status?: string;
@@ -334,6 +335,149 @@ const parseAuthFileJsonObject = (rawText: string): Record<string, unknown> => {
   return { ...(parsed as Record<string, unknown>) };
 };
 
+const parseAuthFileJsonValue = (rawText: string): AuthFileJsonValue => {
+  const trimmed = rawText.trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    throw new Error(AUTH_FILE_INVALID_JSON_OBJECT_ERROR);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(AUTH_FILE_INVALID_JSON_OBJECT_ERROR);
+  }
+
+  if (Array.isArray(parsed)) {
+    if (!parsed.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+      throw new Error(AUTH_FILE_INVALID_JSON_OBJECT_ERROR);
+    }
+    return parsed.map((item) => ({ ...(item as Record<string, unknown>) }));
+  }
+
+  return { ...(parsed as Record<string, unknown>) };
+};
+
+const normalizePatchAuthIndex = (value: unknown): string => {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+};
+
+const readPatchRecordAuthIndex = (record: Record<string, unknown>): string =>
+  normalizePatchAuthIndex(record.authIndex ?? record['auth_index'] ?? record['auth-index']);
+
+const applyFieldsPatchToAuthRecord = (
+  record: Record<string, unknown>,
+  fields: AuthFileFieldsPatch
+): Record<string, unknown> => {
+  const next = { ...record };
+
+  if (fields.prefix !== undefined) {
+    const value = fields.prefix.trim();
+    if (value) {
+      next.prefix = value;
+    } else {
+      delete next.prefix;
+    }
+  }
+
+  if (fields.proxy_url !== undefined) {
+    const value = fields.proxy_url.trim();
+    if (value) {
+      next.proxy_url = value;
+    } else {
+      delete next.proxy_url;
+    }
+  }
+
+  if (fields.priority !== undefined) {
+    if (fields.priority === 0) {
+      delete next.priority;
+    } else {
+      next.priority = fields.priority;
+    }
+  }
+
+  if (fields.note !== undefined) {
+    const value = fields.note.trim();
+    if (value) {
+      next.note = value;
+    } else {
+      delete next.note;
+    }
+  }
+
+  if (fields.headers !== undefined) {
+    const currentHeaders =
+      next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)
+        ? { ...(next.headers as Record<string, unknown>) }
+        : {};
+    Object.entries(fields.headers).forEach(([name, rawValue]) => {
+      const headerName = name.trim();
+      if (!headerName) return;
+      const value = rawValue.trim();
+      if (value) {
+        currentHeaders[headerName] = value;
+      } else {
+        delete currentHeaders[headerName];
+      }
+    });
+    if (Object.keys(currentHeaders).length > 0) {
+      next.headers = currentHeaders;
+    } else {
+      delete next.headers;
+    }
+  }
+
+  if (fields.websockets !== undefined) {
+    delete next.websocket;
+    next.websockets = fields.websockets;
+  }
+
+  return next;
+};
+
+const patchAuthFileJsonValueByAuthIndexes = (
+  value: AuthFileJsonValue,
+  authIndexes: AuthFilePatchAuthIndex[],
+  fields: AuthFileFieldsPatch
+): AuthFileJsonValue => {
+  const targetIndexes = new Set(
+    authIndexes.map(normalizePatchAuthIndex).filter((authIndex) => authIndex)
+  );
+
+  if (targetIndexes.size === 0) {
+    return Array.isArray(value)
+      ? value.map((record) => applyFieldsPatchToAuthRecord(record, fields))
+      : applyFieldsPatchToAuthRecord(value, fields);
+  }
+
+  if (!Array.isArray(value)) {
+    const recordAuthIndex = readPatchRecordAuthIndex(value);
+    if (recordAuthIndex && !targetIndexes.has(recordAuthIndex)) {
+      throw new Error('Auth index not found');
+    }
+    return applyFieldsPatchToAuthRecord(value, fields);
+  }
+
+  const matchedIndexes = new Set<string>();
+  const nextValue = value.map((record) => {
+    const recordAuthIndex = readPatchRecordAuthIndex(record);
+    if (!recordAuthIndex || !targetIndexes.has(recordAuthIndex)) {
+      return record;
+    }
+    matchedIndexes.add(recordAuthIndex);
+    return applyFieldsPatchToAuthRecord(record, fields);
+  });
+
+  if (matchedIndexes.size !== targetIndexes.size) {
+    throw new Error('Auth index not found');
+  }
+
+  return nextValue;
+};
+
 const saveAuthFileText = async (name: string, text: string) => {
   const file = new File([text], name, { type: 'application/json' });
   const result = await authFilesApi.upload(file);
@@ -452,6 +596,17 @@ export const authFilesApi = {
 
   patchFields: (name: string, fields: AuthFileFieldsPatch) =>
     apiClient.patch('/auth-files/fields', { name, ...fields }),
+
+  patchFieldsForAuthIndexes: async (
+    name: string,
+    authIndexes: AuthFilePatchAuthIndex[],
+    fields: AuthFileFieldsPatch
+  ) => {
+    const rawText = await authFilesApi.downloadText(name);
+    const value = parseAuthFileJsonValue(rawText);
+    const nextValue = patchAuthFileJsonValueByAuthIndexes(value, authIndexes, fields);
+    await authFilesApi.saveJsonObject(name, nextValue);
+  },
 
   uploadFiles: async (files: File[]): Promise<AuthFileBatchUploadResult> => {
     const requestedNames = files.map((file) => file.name);

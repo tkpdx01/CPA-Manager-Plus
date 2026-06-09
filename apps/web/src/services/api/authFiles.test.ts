@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     get: vi.fn(),
+    getRaw: vi.fn(),
     postForm: vi.fn(),
   },
 }));
@@ -10,6 +11,7 @@ const { mocks } = vi.hoisted(() => ({
 vi.mock('./client', () => ({
   apiClient: {
     get: mocks.get,
+    getRaw: mocks.getRaw,
     postForm: mocks.postForm,
   },
 }));
@@ -18,6 +20,7 @@ import { authFilesApi } from './authFiles';
 
 beforeEach(() => {
   mocks.get.mockReset();
+  mocks.getRaw.mockReset();
   mocks.postForm.mockReset();
 });
 
@@ -257,5 +260,52 @@ describe('authFilesApi save auth file upload contracts', () => {
         access_token: 'token',
       })
     ).rejects.toThrow('Upload failed');
+  });
+});
+
+describe('authFilesApi patchFieldsForAuthIndexes', () => {
+  const getUploadedFile = () => {
+    const formData = mocks.postForm.mock.calls[0]?.[1];
+    expect(formData).toBeInstanceOf(FormData);
+    const file = (formData as FormData).get('file');
+    expect(file).toBeInstanceOf(File);
+    return file as File;
+  };
+
+  it('updates only matching auth records in an auth array', async () => {
+    mocks.getRaw.mockResolvedValue({
+      data: new Blob([
+        JSON.stringify([
+          { type: 'codex', authIndex: 0, priority: 1, websocket: true },
+          { type: 'codex', auth_index: 'auth-2', priority: 2 },
+          { type: 'codex', authIndex: 'auth-3', priority: 3, websocket: true },
+        ]),
+      ]),
+    });
+    mocks.postForm.mockResolvedValue({
+      status: 'ok',
+      uploaded: 1,
+      files: ['shared-codex.json'],
+      failed: [],
+    });
+
+    await authFilesApi.patchFieldsForAuthIndexes('shared-codex.json', [0, 'auth-2'], {
+      priority: 10,
+      websockets: false,
+    });
+
+    expect(mocks.getRaw).toHaveBeenCalledWith('/auth-files/download?name=shared-codex.json', {
+      responseType: 'blob',
+    });
+    expect(mocks.postForm).toHaveBeenCalledWith('/auth-files', expect.any(FormData));
+    const file = getUploadedFile();
+    expect(file.name).toBe('shared-codex.json');
+    await expect(file.text()).resolves.toBe(
+      JSON.stringify([
+        { type: 'codex', authIndex: 0, priority: 10, websockets: false },
+        { type: 'codex', auth_index: 'auth-2', priority: 10, websockets: false },
+        { type: 'codex', authIndex: 'auth-3', priority: 3, websocket: true },
+      ])
+    );
   });
 });

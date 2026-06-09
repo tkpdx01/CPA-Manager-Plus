@@ -7,6 +7,7 @@ import {
 } from '@/utils/quota';
 import {
   getTypeLabel,
+  isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
 } from '@/features/authFiles/constants';
@@ -31,6 +32,7 @@ const CODEX_FIVE_HOUR_WINDOW_SECONDS = 18_000;
 const CODEX_WEEKLY_WINDOW_SECONDS = 604_800;
 const CODEX_MONTHLY_WINDOW_SECONDS = 2_592_000;
 const UNKNOWN_AUTH_INDEX_KEY = '-';
+const AUTH_FILE_SELECTION_KEY_SEPARATOR = '\u0000';
 
 export const AUTH_FILES_CODEX_STATUS_FILTERS = [
   'all',
@@ -42,8 +44,18 @@ export const AUTH_FILES_CODEX_STATUS_FILTERS = [
   'monthly_limited',
   'disabled_with_reset',
 ] as const;
+export const AUTH_FILES_CODEX_PLAN_FILTERS = [
+  'all',
+  'free',
+  'plus',
+  'team',
+  'prolite',
+  'pro',
+  'unknown',
+] as const;
 
 export type AuthFilesCodexStatusFilter = (typeof AUTH_FILES_CODEX_STATUS_FILTERS)[number];
+export type AuthFilesCodexPlanFilter = (typeof AUTH_FILES_CODEX_PLAN_FILTERS)[number];
 export type AuthFileCodexStatusBadgeTone = 'danger' | 'warning' | 'info';
 export type AuthFileCodexStatusBadgeKind =
   | 'reauth'
@@ -88,10 +100,15 @@ export type AuthFileCodexInspectionSnapshot = {
   usedPercent?: number | string | null;
   isQuota?: boolean | null;
 };
+export type AuthFilePatchTarget = {
+  name: string;
+  authIndex?: string | number | null;
+};
 
 const CODEX_STATUS_FILTER_SET = new Set<AuthFilesCodexStatusFilter>(
   AUTH_FILES_CODEX_STATUS_FILTERS
 );
+const CODEX_PLAN_FILTER_SET = new Set<AuthFilesCodexPlanFilter>(AUTH_FILES_CODEX_PLAN_FILTERS);
 
 export const compareAuthFileName = (left: { name: string }, right: { name: string }) =>
   left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' });
@@ -110,6 +127,9 @@ const normalizeAuthIndexKey = (value: unknown): string => {
   const normalized = String(value).trim();
   return normalized || UNKNOWN_AUTH_INDEX_KEY;
 };
+
+const readAuthFileAuthIndex = (file: AuthFileItem): string | number | null =>
+  (file.authIndex ?? file['auth_index'] ?? file['auth-index'] ?? null) as string | number | null;
 
 const isCodexAuthFile = (file: AuthFileItem): boolean =>
   normalizeProviderKey(String(file.type ?? file.provider ?? '')) === 'codex';
@@ -130,7 +150,9 @@ const findCodexQuotaWindow = (
   const windows = quota?.windows ?? [];
   return (
     windows.find(preferredMatch) ??
-    windows.find((window) => normalizeWindowSeconds(window.limitWindowSeconds) === limitWindowSeconds) ??
+    windows.find(
+      (window) => normalizeWindowSeconds(window.limitWindowSeconds) === limitWindowSeconds
+    ) ??
     null
   );
 };
@@ -165,11 +187,58 @@ export const normalizeAuthFilesCodexStatusFilter = (
     : null;
 };
 
+export const normalizeAuthFilesCodexPlanFilter = (
+  value: unknown
+): AuthFilesCodexPlanFilter | null =>
+  CODEX_PLAN_FILTER_SET.has(value as AuthFilesCodexPlanFilter)
+    ? (value as AuthFilesCodexPlanFilter)
+    : null;
+
 export const getAuthFileCodexInspectionKey = (fileName: string, authIndex?: unknown) =>
   `${fileName}::${normalizeAuthIndexKey(authIndex)}`;
 
 export const getAuthFileCodexInspectionKeyForFile = (file: AuthFileItem) =>
-  getAuthFileCodexInspectionKey(file.name, file.authIndex ?? file['auth_index']);
+  getAuthFileCodexInspectionKey(file.name, readAuthFileAuthIndex(file));
+
+export const getAuthFileSelectionKey = (file: AuthFileItem): string =>
+  [file.name, normalizeAuthIndexKey(readAuthFileAuthIndex(file))].join(
+    AUTH_FILE_SELECTION_KEY_SEPARATOR
+  );
+
+export const getAuthFileNameFromSelectionKey = (key: string): string =>
+  key.split(AUTH_FILE_SELECTION_KEY_SEPARATOR, 1)[0] ?? '';
+
+export const getAuthFilePatchTarget = (file: AuthFileItem): AuthFilePatchTarget => {
+  const authIndex = readAuthFileAuthIndex(file);
+  return authIndex === null || authIndex === undefined || String(authIndex).trim() === ''
+    ? { name: file.name }
+    : { name: file.name, authIndex };
+};
+
+export const hasPartialSharedAuthFileSelection = (
+  files: AuthFileItem[],
+  selectedKeys: Iterable<string>
+): boolean => {
+  const selectableRowsByName = new Map<string, number>();
+  files.forEach((file) => {
+    if (isRuntimeOnlyAuthFile(file)) return;
+    const name = String(file.name ?? '').trim();
+    if (!name) return;
+    selectableRowsByName.set(name, (selectableRowsByName.get(name) ?? 0) + 1);
+  });
+
+  const selectedRowsByName = new Map<string, number>();
+  Array.from(selectedKeys).forEach((key) => {
+    const name = getAuthFileNameFromSelectionKey(key).trim();
+    if (!name) return;
+    selectedRowsByName.set(name, (selectedRowsByName.get(name) ?? 0) + 1);
+  });
+
+  return Array.from(selectedRowsByName.entries()).some(([name, selectedCount]) => {
+    const totalCount = selectableRowsByName.get(name) ?? 0;
+    return totalCount > 1 && selectedCount > 0 && selectedCount < totalCount;
+  });
+};
 
 export const buildAuthFileCodexInspectionMap = (
   items: AuthFileCodexInspectionSnapshot[]
@@ -438,6 +507,33 @@ const getCodexPlanLabel = (planType: string | null | undefined, t: TFunction): s
 
 const getAuthFilePlanType = (file: AuthFileItem, quota?: CodexQuotaState): string | null =>
   resolveCodexPlanType(file) ?? quota?.planType ?? null;
+
+const getCodexPlanFilterValue = (
+  file: AuthFileItem,
+  quota?: CodexQuotaState
+): AuthFilesCodexPlanFilter | null => {
+  const normalized = normalizePlanType(getAuthFilePlanType(file, quota));
+  if (!normalized) return null;
+  if (normalized === 'free') return 'free';
+  if (normalized === 'plus') return 'plus';
+  if (normalized === 'team') return 'team';
+  if (normalized === 'pro') return 'pro';
+  if (PREMIUM_CODEX_PLAN_TYPES.has(normalized) && normalized !== 'pro') return 'prolite';
+  return null;
+};
+
+export const authFileMatchesCodexPlanFilter = (
+  file: AuthFileItem,
+  quota: CodexQuotaState | undefined,
+  filter: AuthFilesCodexPlanFilter
+): boolean => {
+  if (filter === 'all') return true;
+  if (!isCodexAuthFile(file)) return false;
+
+  const planFilterValue = getCodexPlanFilterValue(file, quota);
+  if (filter === 'unknown') return planFilterValue === null;
+  return planFilterValue === filter;
+};
 
 export const getAuthFilePlanSortRank = (
   file: AuthFileItem,

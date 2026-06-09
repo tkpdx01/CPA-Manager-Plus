@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { AuthFileItem, CodexQuotaState } from '@/types';
 import {
+  authFileMatchesCodexPlanFilter,
   authFileMatchesCodexStatusFilter,
   buildAuthFileCodexInspectionMap,
   getAuthFileCodexInspectionKey,
   getAuthFileCodexStatus,
+  getAuthFileNameFromSelectionKey,
+  getAuthFilePatchTarget,
   getAuthFileSearchValues,
+  getAuthFileSelectionKey,
+  hasPartialSharedAuthFileSelection,
   normalizeAuthFilesCodexStatusFilter,
   stringifySearchValue,
   type AuthFileCodexInspectionSnapshot,
@@ -290,5 +295,67 @@ describe('auth file Codex status helpers', () => {
     expect(normalizeAuthFilesCodexStatusFilter('monthly_limited')).toBe('monthly_limited');
     expect(normalizeAuthFilesCodexStatusFilter('disabled_with_reset')).toBe('disabled_with_reset');
     expect(normalizeAuthFilesCodexStatusFilter('unknown')).toBeNull();
+  });
+});
+
+describe('auth file Codex plan helpers', () => {
+  it('matches Codex files by plan from file metadata or quota fallback', () => {
+    expect(
+      authFileMatchesCodexPlanFilter(codexFile({ plan_type: 'plus' }), undefined, 'plus')
+    ).toBe(true);
+    expect(
+      authFileMatchesCodexPlanFilter(codexFile({ plan_type: 'plus' }), undefined, 'team')
+    ).toBe(false);
+    expect(
+      authFileMatchesCodexPlanFilter(
+        codexFile({ metadata: { planType: 'pro-lite' } }),
+        undefined,
+        'prolite'
+      )
+    ).toBe(true);
+    expect(
+      authFileMatchesCodexPlanFilter(
+        codexFile({ name: 'quota-team.json' }),
+        codexQuota({ planType: 'team' }),
+        'team'
+      )
+    ).toBe(true);
+    expect(authFileMatchesCodexPlanFilter(codexFile(), undefined, 'unknown')).toBe(true);
+    expect(
+      authFileMatchesCodexPlanFilter({ name: 'qwen.json', type: 'qwen' }, undefined, 'plus')
+    ).toBe(false);
+  });
+
+  it('keeps same-file auth rows distinct for selection and patch targets', () => {
+    const first = codexFile({ name: 'shared-codex.json', authIndex: 0 });
+    const second = codexFile({ name: 'shared-codex.json', authIndex: 1 });
+    const firstKey = getAuthFileSelectionKey(first);
+    const secondKey = getAuthFileSelectionKey(second);
+
+    expect(firstKey).not.toBe(secondKey);
+    expect(getAuthFileNameFromSelectionKey(firstKey)).toBe('shared-codex.json');
+    expect(getAuthFilePatchTarget(first)).toEqual({ name: 'shared-codex.json', authIndex: 0 });
+    expect(getAuthFilePatchTarget(codexFile({ authIndex: undefined }))).toEqual({
+      name: 'codex-main.json',
+    });
+  });
+
+  it('detects partial selection for shared auth files', () => {
+    const first = codexFile({ name: 'shared-codex.json', authIndex: 0 });
+    const second = codexFile({ name: 'shared-codex.json', authIndex: 1 });
+    const single = codexFile({ name: 'single-codex.json', authIndex: 'single' });
+
+    expect(
+      hasPartialSharedAuthFileSelection([first, second, single], [getAuthFileSelectionKey(first)])
+    ).toBe(true);
+    expect(
+      hasPartialSharedAuthFileSelection(
+        [first, second, single],
+        [first, second].map(getAuthFileSelectionKey)
+      )
+    ).toBe(false);
+    expect(
+      hasPartialSharedAuthFileSelection([first, second, single], [getAuthFileSelectionKey(single)])
+    ).toBe(false);
   });
 });
