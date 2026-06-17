@@ -562,32 +562,12 @@ export const buildSecondarySummaryCards = (
 ): SummaryCardProps[] => {
   const totalCacheTokens =
     summary.cachedTokens + summary.cacheCreationTokens + summary.cacheReadTokens;
-  const hasFineGrainedCache = summary.cacheCreationTokens > 0 || summary.cacheReadTokens > 0;
-  const tokenMixTotal =
-    summary.inputTokens + summary.outputTokens + summary.reasoningTokens + totalCacheTokens;
-  const cachedTokenMetaParts = [
-    hasFineGrainedCache
-      ? `${t('monitoring.of_token_mix')} ${formatPercent(tokenMixTotal > 0 ? totalCacheTokens / tokenMixTotal : 0)}`
-      : `${t('monitoring.of_input_tokens')} ${formatPercent(summary.inputTokens > 0 ? totalCacheTokens / summary.inputTokens : 0)}`,
-  ];
-
-  if (hasFineGrainedCache) {
-    if (summary.cachedTokens > 0) {
-      cachedTokenMetaParts.push(
-        `${shortLabel(t, 'monitoring.cached_tokens_short', 'monitoring.cached_tokens')} ${formatCompactNumber(summary.cachedTokens)}`
-      );
-    }
-    if (summary.cacheCreationTokens > 0) {
-      cachedTokenMetaParts.push(
-        `${t('monitoring.cache_creation_tokens_short')} ${formatCompactNumber(summary.cacheCreationTokens)}`
-      );
-    }
-    if (summary.cacheReadTokens > 0) {
-      cachedTokenMetaParts.push(
-        `${t('monitoring.cache_read_tokens_short')} ${formatCompactNumber(summary.cacheReadTokens)}`
-      );
-    }
-  }
+  const cacheHitTokens = summary.cachedTokens + summary.cacheReadTokens;
+  const inputSideTokens =
+    Math.max(summary.inputTokens, summary.cachedTokens) +
+    summary.cacheReadTokens +
+    summary.cacheCreationTokens;
+  const cacheHitRate = inputSideTokens > 0 ? cacheHitTokens / inputSideTokens : 0;
 
   return [
     {
@@ -625,7 +605,7 @@ export const buildSecondarySummaryCards = (
       fullLabel: t('monitoring.cached_tokens'),
       value: formatCompactNumber(totalCacheTokens),
       valueTitle: formatFullNumber(totalCacheTokens, locale),
-      meta: cachedTokenMetaParts.join(' · '),
+      meta: `${t('monitoring.cache_hit_rate')} ${formatPercent(cacheHitRate)}`,
       variant: 'secondary',
       icon: 'cache',
       accent: 'teal',

@@ -447,15 +447,14 @@ func requestHealthTone(calls int64, failureRate float64, future bool) string {
 }
 
 func buildTokenMix(today TodaySummary) []TokenMixSegment {
-	total := today.InputTokens + today.OutputTokens + today.ReasoningTokens +
-		today.CachedTokens + today.CacheReadTokens + today.CacheCreationTokens
+	inputTokens := max(today.InputTokens, today.CachedTokens) +
+		max(today.CacheReadTokens, int64(0)) +
+		max(today.CacheCreationTokens, int64(0))
+	outputTokens := max(today.OutputTokens, today.ReasoningTokens)
+	total := inputTokens + outputTokens
 	return []TokenMixSegment{
-		{Key: "input", Tokens: today.InputTokens, Share: rate(today.InputTokens, total)},
-		{Key: "output", Tokens: today.OutputTokens, Share: rate(today.OutputTokens, total)},
-		{Key: "reasoning", Tokens: today.ReasoningTokens, Share: rate(today.ReasoningTokens, total)},
-		{Key: "cached", Tokens: today.CachedTokens, Share: rate(today.CachedTokens, total)},
-		{Key: "cache_read", Tokens: today.CacheReadTokens, Share: rate(today.CacheReadTokens, total)},
-		{Key: "cache_creation", Tokens: today.CacheCreationTokens, Share: rate(today.CacheCreationTokens, total)},
+		{Key: "input", Tokens: inputTokens, Share: rate(inputTokens, total)},
+		{Key: "output", Tokens: outputTokens, Share: rate(outputTokens, total)},
 	}
 }
 

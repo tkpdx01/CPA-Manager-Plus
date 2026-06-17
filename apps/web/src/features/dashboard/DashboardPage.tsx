@@ -520,7 +520,6 @@ export function DashboardPage() {
             trafficNowMs={usageSummary.summary?.window.now_ms}
             todayRequestHealthTimeline={usageSummary.todayRequestHealthTimeline}
             tokenMix={usageSummary.tokenMix}
-            totalTokens={usageSummary.summary?.today.total_tokens}
             loading={usageSummary.loading}
           />
         </section>

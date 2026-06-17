@@ -21,7 +21,6 @@ interface TrafficOverviewCardProps {
   trafficNowMs?: number | null;
   todayRequestHealthTimeline: DashboardTodayRequestHealthTimeline | null;
   tokenMix: DashboardTokenMixSegment[];
-  totalTokens?: number;
   loading: boolean;
 }
 
@@ -41,18 +40,14 @@ const formatHour = (bucketMs: number, locale: string) =>
 const tokenLabelMap: Record<string, string> = {
   input: 'dashboard.token_mix_input',
   output: 'dashboard.token_mix_output',
-  reasoning: 'dashboard.token_mix_reasoning',
-  cached: 'dashboard.token_mix_cached',
 };
 
 const tokenColorMap: Record<string, string> = {
   input: '#3b82f6',
   output: '#10b981',
-  reasoning: '#8b5cf6',
-  cached: '#f59e0b',
 };
 
-const visibleTokenMixKeys = new Set(['input', 'output', 'reasoning', 'cached']);
+const visibleTokenMixKeys = new Set(['input', 'output']);
 
 const healthToneClassMap: Record<string, string> = {
   future: 'healthFuture',
@@ -88,7 +83,6 @@ export function TrafficOverviewCard({
   trafficNowMs,
   todayRequestHealthTimeline,
   tokenMix,
-  totalTokens: todayTotalTokens,
   loading,
 }: TrafficOverviewCardProps) {
   const { t, i18n } = useTranslation();
@@ -97,7 +91,7 @@ export function TrafficOverviewCard({
   const hasData = visibleTimeline.some((point) => point.calls > 0 || point.tokens > 0);
   const visibleTokenMix = tokenMix.filter((segment) => visibleTokenMixKeys.has(segment.key));
   const tokenMixTotal = visibleTokenMix.reduce((acc, s) => acc + s.tokens, 0);
-  const displayTotalTokens = todayTotalTokens ?? tokenMixTotal;
+  const displayTotalTokens = tokenMixTotal;
   const hasTokenMixData = visibleTokenMix.some((segment) => segment.tokens > 0);
   const rankedTokenMix = [...visibleTokenMix].sort((left, right) => right.tokens - left.tokens);
   const maxTokenMixTokens = rankedTokenMix.reduce((max, segment) => Math.max(max, segment.tokens), 0);

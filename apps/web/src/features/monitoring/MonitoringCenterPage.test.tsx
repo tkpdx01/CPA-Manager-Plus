@@ -62,6 +62,7 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'monitoring.reasoning_tokens': 'Reasoning',
     'monitoring.of_token_mix': 'Share',
     'monitoring.of_input_tokens': 'Input share',
+    'monitoring.cache_hit_rate': 'Hit rate',
     'usage_stats.model_price_model': 'Model',
     'monitoring.last_sync': 'Last sync',
     'monitoring.account_quota_title': 'Account Quota',
@@ -158,10 +159,12 @@ describe('MonitoringCenterPage summary cards', () => {
     expect(html).toContain('Reasoning 5.0M');
     expect(html).toContain('Share 99.6%');
     expect(html).toContain('Share 0.4%');
-    expect(html).toContain('Share 56.2% · Cached Tokens 2.6B · Create 555.5M · Read 444.4M');
+    expect(html).toContain('Hit rate 80.3%');
+    expect(html).not.toContain('Create 555.5M');
+    expect(html).not.toContain('Read 444.4M');
   });
 
-  it('hides cache creation and read meta when both cached sub-metrics are zero', () => {
+  it('shows legacy cache hit rate against input tokens', () => {
     const secondaryCards = buildSecondarySummaryCards(
       {
         totalCalls: 1,
@@ -192,7 +195,41 @@ describe('MonitoringCenterPage summary cards', () => {
     );
     const cachedCard = secondaryCards.find((card) => card.label === 'Cached Tokens');
 
-    expect(cachedCard?.meta).toBe('Input share 93.2%');
+    expect(cachedCard?.meta).toBe('Hit rate 93.2%');
+  });
+
+  it('uses one input-side cache hit rate for fine-grained cache fields', () => {
+    const secondaryCards = buildSecondarySummaryCards(
+      {
+        totalCalls: 1,
+        successCalls: 1,
+        failureCalls: 0,
+        successRate: 1,
+        inputTokens: 1_000,
+        outputTokens: 2_000,
+        reasoningTokens: 500,
+        cachedTokens: 200,
+        cacheReadTokens: 300,
+        cacheCreationTokens: 100,
+        totalTokens: 3_500,
+        totalCost: 0,
+        averageLatencyMs: null,
+        rpm30m: 0,
+        tpm30m: 0,
+        avgDailyRequests: 0,
+        avgDailyTokens: 0,
+        approxTasks: 0,
+        approxTaskFailures: 0,
+        approxTaskSuccessRate: 0,
+        zeroTokenCalls: 0,
+        zeroTokenModels: [],
+      },
+      'en',
+      t
+    );
+    const cachedCard = secondaryCards.find((card) => card.label === 'Cached Tokens');
+
+    expect(cachedCard?.meta).toBe('Hit rate 35.7%');
   });
 });
 
