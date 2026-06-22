@@ -930,6 +930,8 @@
   "antigravity_subscription": {
     "subscription_label": "訂閱",
     "loading_short": "載入方案",
+    "refresh_short": "查詢方案",
+    "refresh_button": "查詢 Antigravity 方案",
     "error_badge": "方案不可用",
     "load_failed": "訂閱取得失敗：{{message}}",
     "missing_auth_index": "驗證檔案缺少 auth_index",

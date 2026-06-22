@@ -938,6 +938,8 @@
   "antigravity_subscription": {
     "subscription_label": "Подписка",
     "loading_short": "Загрузка плана",
+    "refresh_short": "Проверить план",
+    "refresh_button": "Проверить план Antigravity",
     "error_badge": "План недоступен",
     "load_failed": "Не удалось получить подписку: {{message}}",
     "missing_auth_index": "В файле авторизации отсутствует auth_index",

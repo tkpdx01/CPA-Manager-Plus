@@ -942,6 +942,8 @@
   "antigravity_subscription": {
     "subscription_label": "Subscription",
     "loading_short": "Loading plan",
+    "refresh_short": "Check plan",
+    "refresh_button": "Check Antigravity plan",
     "error_badge": "Plan unavailable",
     "load_failed": "Subscription failed: {{message}}",
     "missing_auth_index": "Auth file missing auth_index",

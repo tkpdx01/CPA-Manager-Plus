@@ -931,6 +931,8 @@
   "antigravity_subscription": {
     "subscription_label": "订阅",
     "loading_short": "加载套餐",
+    "refresh_short": "查询套餐",
+    "refresh_button": "查询 Antigravity 套餐",
     "error_badge": "套餐不可用",
     "load_failed": "订阅获取失败：{{message}}",
     "missing_auth_index": "认证文件缺少 auth_index",

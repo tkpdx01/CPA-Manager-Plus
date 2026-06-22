@@ -763,11 +763,8 @@ export function AuthFilesPage() {
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * pageSize;
   const pageItems = useMemo(() => sorted.slice(start, start + pageSize), [pageSize, sorted, start]);
-  const antigravitySubscriptionItems = useMemo(
-    () => (normalizedFilter === 'antigravity' ? pageItems : []),
-    [normalizedFilter, pageItems]
-  );
-  const antigravitySubscriptions = useAntigravitySubscriptions(antigravitySubscriptionItems);
+  const { subscriptions: antigravitySubscriptions, refreshSubscription } =
+    useAntigravitySubscriptions();
   const pageHasInlineQuotaCards = !compactMode && pageItems.some(hasInlineQuotaLayout);
   const selectablePageItems = useMemo(
     () => pageItems.filter((file) => !isRuntimeOnlyAuthFile(file)),
@@ -1319,6 +1316,7 @@ export function AuthFilesPage() {
                       codexStatusBadges={codexStatus?.badges ?? []}
                       codexNeedsReauth={codexStatus?.needsReauth ?? false}
                       antigravitySubscription={antigravitySubscriptions[file.name]}
+                      onRefreshAntigravitySubscription={refreshSubscription}
                       quotaCooldown={quotaCooldowns.get(file.name)}
                       onShowModels={showModels}
                       onReauth={(targetFile) =>

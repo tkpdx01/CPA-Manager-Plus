@@ -54,6 +54,7 @@ export type AuthFileCardProps = {
   codexStatusBadges?: AuthFileCodexStatusBadge[];
   codexNeedsReauth?: boolean;
   antigravitySubscription?: AntigravitySubscriptionState;
+  onRefreshAntigravitySubscription?: (file: AuthFileItem) => void;
   quotaCooldown?: QuotaCooldownInfo;
   onShowModels: (file: AuthFileItem) => void;
   onReauth?: (file: AuthFileItem) => void;
@@ -90,6 +91,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
     codexStatusBadges = [],
     codexNeedsReauth = false,
     antigravitySubscription,
+    onRefreshAntigravitySubscription,
     quotaCooldown,
     onShowModels,
     onReauth,
@@ -143,6 +145,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const subscription =
     isAntigravity && !isRuntimeOnly ? antigravitySubscription : undefined;
   const subscriptionData = subscription?.status === 'success' ? subscription.data : undefined;
+  const isSubscriptionLoading = subscription?.status === 'loading';
   const subscriptionPlanLabel =
     subscriptionData?.plan === 'free'
       ? t('antigravity_subscription.plan_free')
@@ -158,7 +161,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 t('antigravity_subscription.plan_unknown')
               : '';
   const subscriptionBadgeLabel =
-    subscription?.status === 'error'
+    isSubscriptionLoading
+      ? t('antigravity_subscription.loading_short')
+      : subscription?.status === 'error'
       ? t('antigravity_subscription.error_badge')
       : subscriptionData
         ? t('antigravity_subscription.plan_badge', {
@@ -172,7 +177,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
         ? `${subscriptionData.tierName} (${subscriptionData.tierId})`
         : subscriptionData?.tierName || subscriptionData?.tierId || subscriptionBadgeLabel;
   const subscriptionBadgeClass =
-    subscription?.status === 'error'
+    isSubscriptionLoading
+      ? styles.subscriptionBadgeLoading
+      : subscription?.status === 'error'
       ? styles.subscriptionBadgeError
       : subscriptionData?.plan === 'free'
         ? styles.subscriptionBadgeFree
@@ -183,6 +190,11 @@ export function AuthFileCard(props: AuthFileCardProps) {
     subscription?.status === 'error'
       ? subscription.error || t('common.unknown_error')
       : '';
+  const showSubscriptionRefreshButton =
+    isAntigravity &&
+    !isRuntimeOnly &&
+    !subscriptionBadgeLabel &&
+    Boolean(onRefreshAntigravitySubscription);
   const stateLabel = isRuntimeOnly
     ? t('auth_files.type_virtual') || '虚拟认证文件'
     : file.disabled
@@ -241,8 +253,22 @@ export function AuthFileCard(props: AuthFileCardProps) {
                     className={`${styles.subscriptionBadge} ${subscriptionBadgeClass}`}
                     title={subscriptionTitle}
                   >
+                    {isSubscriptionLoading && (
+                      <LoadingSpinner size={10} className={styles.subscriptionBadgeSpinner} />
+                    )}
                     {subscriptionBadgeLabel}
                   </span>
+                )}
+                {showSubscriptionRefreshButton && (
+                  <button
+                    type="button"
+                    className={styles.subscriptionRefreshButton}
+                    title={t('antigravity_subscription.refresh_button')}
+                    onClick={() => onRefreshAntigravitySubscription?.(file)}
+                    disabled={disableControls}
+                  >
+                    {t('antigravity_subscription.refresh_short')}
+                  </button>
                 )}
                 {codexStatusBadges.map((badge) => {
                   const label = t(badge.labelKey, {
@@ -290,16 +316,6 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 <div className={styles.noteText} title={noteValue}>
                   <span className={styles.noteLabel}>{t('auth_files.note_display')}</span>
                   <span className={styles.noteValue}>{noteValue}</span>
-                </div>
-              )}
-              {!compact && subscriptionData?.tierName && (
-                <div className={styles.subscriptionSubtitle} title={subscriptionTitle}>
-                  <span className={styles.subscriptionSubtitleLabel}>
-                    {t('antigravity_subscription.subscription_label')}
-                  </span>
-                  <span className={styles.subscriptionSubtitleValue}>
-                    {subscriptionData.tierName}
-                  </span>
                 </div>
               )}
             </div>
