@@ -7,6 +7,7 @@ import (
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/accountaction"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/antigravityinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/apikeyalias"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
@@ -27,10 +28,14 @@ type ManagerCPAConnectionConfig = model.ManagerCPAConnectionConfig
 type ManagerCollectorConfig = model.ManagerCollectorConfig
 type ManagerCodexInspectionConfig = model.ManagerCodexInspectionConfig
 type ManagerCodexInspectionScheduleConfig = model.ManagerCodexInspectionScheduleConfig
+type ManagerAntigravityInspectionConfig = model.ManagerAntigravityInspectionConfig
 type ManagerExternalUsageServiceConfig = model.ManagerExternalUsageServiceConfig
 type CodexInspectionRun = model.CodexInspectionRun
 type CodexInspectionResult = model.CodexInspectionResult
 type CodexInspectionLog = model.CodexInspectionLog
+type AntigravityInspectionRun = model.AntigravityInspectionRun
+type AntigravityInspectionResult = model.AntigravityInspectionResult
+type AntigravityInspectionLog = model.AntigravityInspectionLog
 type InsertResult = model.InsertResult
 type ModelPrice = model.ModelPrice
 type ModelPriceSyncResult = model.ModelPriceSyncResult
@@ -43,6 +48,8 @@ type AutomationSettings = model.AutomationSettings
 
 var DefaultCodexInspectionConfig = model.DefaultCodexInspectionConfig
 var NormalizeCodexInspectionConfig = model.NormalizeCodexInspectionConfig
+var DefaultAntigravityInspectionConfig = model.DefaultAntigravityInspectionConfig
+var NormalizeAntigravityInspectionConfig = model.NormalizeAntigravityInspectionConfig
 
 // Aggregation result types re-exported for service-layer consumers.
 type Aggregate = usageevent.Aggregate
@@ -74,8 +81,9 @@ type Store struct {
 	ModelPrices      modelprice.Repository
 	APIKeyAliases    apikeyalias.Repository
 	AccountActions   accountaction.Repository
-	CodexInspections codexinspection.Repository
-	QuotaCooldowns   quotacooldown.Repository
+	CodexInspections      codexinspection.Repository
+	AntigravityInspections antigravityinspection.Repository
+	QuotaCooldowns        quotacooldown.Repository
 }
 
 func Open(path string, protector ...*security.Protector) (*Store, error) {
@@ -95,8 +103,9 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		ModelPrices:      modelprice.New(db),
 		APIKeyAliases:    apikeyalias.New(db),
 		AccountActions:   accountaction.New(db),
-		CodexInspections: codexinspection.New(db),
-		QuotaCooldowns:   quotacooldown.New(db),
+		CodexInspections:      codexinspection.New(db),
+		AntigravityInspections: antigravityinspection.New(db),
+		QuotaCooldowns:        quotacooldown.New(db),
 	}
 }
 
@@ -241,6 +250,42 @@ func (s *Store) ListCodexInspectionResults(ctx context.Context, runID int64) ([]
 
 func (s *Store) ListCodexInspectionLogs(ctx context.Context, runID int64) ([]CodexInspectionLog, error) {
 	return s.CodexInspections.ListLogs(ctx, runID)
+}
+
+func (s *Store) CreateAntigravityInspectionRun(ctx context.Context, run AntigravityInspectionRun) (AntigravityInspectionRun, error) {
+	return s.AntigravityInspections.CreateRun(ctx, run)
+}
+
+func (s *Store) UpdateAntigravityInspectionRun(ctx context.Context, run AntigravityInspectionRun) error {
+	return s.AntigravityInspections.UpdateRun(ctx, run)
+}
+
+func (s *Store) InsertAntigravityInspectionResult(ctx context.Context, result AntigravityInspectionResult) (AntigravityInspectionResult, error) {
+	return s.AntigravityInspections.InsertResult(ctx, result)
+}
+
+func (s *Store) InsertAntigravityInspectionLog(ctx context.Context, entry AntigravityInspectionLog) (AntigravityInspectionLog, error) {
+	return s.AntigravityInspections.InsertLog(ctx, entry)
+}
+
+func (s *Store) ListAntigravityInspectionRuns(ctx context.Context, limit int) ([]AntigravityInspectionRun, error) {
+	return s.AntigravityInspections.ListRuns(ctx, limit)
+}
+
+func (s *Store) GetAntigravityInspectionRun(ctx context.Context, id int64) (AntigravityInspectionRun, bool, error) {
+	return s.AntigravityInspections.GetRun(ctx, id)
+}
+
+func (s *Store) GetLatestAntigravityInspectionRunByTrigger(ctx context.Context, triggerType, triggerKey string) (AntigravityInspectionRun, bool, error) {
+	return s.AntigravityInspections.GetLatestRunByTrigger(ctx, triggerType, triggerKey)
+}
+
+func (s *Store) ListAntigravityInspectionResults(ctx context.Context, runID int64) ([]AntigravityInspectionResult, error) {
+	return s.AntigravityInspections.ListResults(ctx, runID)
+}
+
+func (s *Store) ListAntigravityInspectionLogs(ctx context.Context, runID int64) ([]AntigravityInspectionLog, error) {
+	return s.AntigravityInspections.ListLogs(ctx, runID)
 }
 
 func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertResult, error) {

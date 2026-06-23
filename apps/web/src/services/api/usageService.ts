@@ -171,6 +171,7 @@ export interface ManagerConfig {
   cpaConnection: ManagerCPAConnectionConfig;
   collector: ManagerCollectorConfig;
   codexInspection?: ManagerCodexInspectionConfig;
+  antigravityInspection?: ManagerAntigravityInspectionConfig;
   externalUsageService: ManagerExternalUsageServiceConfig;
   updatedAtMs?: number;
 }
@@ -280,6 +281,128 @@ export interface CodexInspectionActionOutcome {
 export interface CodexInspectionActionsResponse {
   outcomes: CodexInspectionActionOutcome[];
   detail: CodexInspectionRunDetail;
+}
+
+export type ManagerAntigravityInspectionScheduleMode = ManagerCodexInspectionScheduleMode;
+export type ManagerAntigravityInspectionAutoActionMode = ManagerCodexInspectionAutoActionMode;
+
+export interface ManagerAntigravityInspectionScheduleConfig {
+  mode?: ManagerAntigravityInspectionScheduleMode | string;
+  timePoints?: string[];
+  intervalMinutes?: number;
+  timeZone?: string;
+}
+
+export interface ManagerAntigravityInspectionConfig {
+  enabled?: boolean;
+  schedule?: ManagerAntigravityInspectionScheduleConfig;
+  targetType?: string;
+  workers?: number;
+  deleteWorkers?: number;
+  timeout?: number;
+  retries?: number;
+  userAgent?: string;
+  usedPercentThreshold?: number;
+  sampleSize?: number;
+  autoActionMode?: ManagerAntigravityInspectionAutoActionMode | string;
+  rateLimitAction?: string;
+}
+
+export interface AntigravityInspectionRun {
+  id: number;
+  triggerType: string;
+  triggerKey?: string;
+  status: string;
+  startedAtMs: number;
+  finishedAtMs?: number;
+  totalFiles: number;
+  probeSetCount: number;
+  sampledCount: number;
+  disabledCount: number;
+  enabledCount: number;
+  deleteCount: number;
+  disableCount: number;
+  enableCount: number;
+  reauthCount: number;
+  keepCount: number;
+  error?: string;
+  settings?: ManagerAntigravityInspectionConfig;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface AntigravityInspectionQuotaWindow {
+  id: string;
+  labelKey: string;
+  labelParams?: Record<string, string | number>;
+  usedPercent?: number | null;
+  resetLabel?: string;
+  limitWindowSeconds?: number | null;
+}
+
+export interface AntigravityInspectionResult {
+  id: number;
+  runId: number;
+  accountKey: string;
+  fileName: string;
+  displayAccount: string;
+  authIndex?: string;
+  accountId?: string;
+  provider: string;
+  disabled: boolean;
+  status?: string;
+  state?: string;
+  action: string;
+  actionReason: string;
+  actionStatus?: string;
+  executedAction?: string;
+  actionError?: string;
+  statusCode?: number;
+  usedPercent?: number;
+  isQuota: boolean;
+  error?: string;
+  planType?: string | null;
+  quotaWindows?: AntigravityInspectionQuotaWindow[];
+  recoverAtMs?: number;
+  recoverLabel?: string;
+  errorKind?: string;
+  errorDetail?: string;
+  createdAtMs: number;
+}
+
+export interface AntigravityInspectionLog {
+  id: number;
+  runId: number;
+  level: string;
+  message: string;
+  detail?: unknown;
+  createdAtMs: number;
+}
+
+export interface AntigravityInspectionRunsResponse {
+  items: AntigravityInspectionRun[];
+}
+
+export interface AntigravityInspectionRunDetail {
+  run: AntigravityInspectionRun;
+  results: AntigravityInspectionResult[];
+  logs: AntigravityInspectionLog[];
+}
+
+export interface AntigravityInspectionActionOutcome {
+  resultId?: number;
+  accountKey?: string;
+  fileName: string;
+  displayAccount: string;
+  action: string;
+  status: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface AntigravityInspectionActionsResponse {
+  outcomes: AntigravityInspectionActionOutcome[];
+  detail: AntigravityInspectionRunDetail;
 }
 
 export interface ModelPricesResponse {
@@ -1280,6 +1403,77 @@ export const usageServiceApi = {
     return withUsageServiceError(async () => {
       const response = await axios.post<CodexInspectionActionsResponse>(
         buildUrl(base, `/v0/management/codex-inspection/runs/${runId}/actions`),
+        { resultIds },
+        {
+          timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  listAntigravityInspectionRuns: async (
+    base: string,
+    managementKey?: string,
+    limit = 20
+  ): Promise<AntigravityInspectionRunsResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.get<AntigravityInspectionRunsResponse>(
+        buildUrl(base, '/v0/management/antigravity-inspection/runs'),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+          params: { limit },
+        }
+      );
+      return response.data;
+    });
+  },
+
+  getAntigravityInspectionRun: async (
+    base: string,
+    managementKey: string | undefined,
+    id: number
+  ): Promise<AntigravityInspectionRunDetail> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.get<AntigravityInspectionRunDetail>(
+        buildUrl(base, `/v0/management/antigravity-inspection/runs/${id}`),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  runAntigravityInspection: async (
+    base: string,
+    managementKey?: string
+  ): Promise<AntigravityInspectionRunDetail> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.post<AntigravityInspectionRunDetail>(
+        buildUrl(base, '/v0/management/antigravity-inspection/run'),
+        undefined,
+        {
+          timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  executeAntigravityInspectionActions: async (
+    base: string,
+    managementKey: string | undefined,
+    runId: number,
+    resultIds: number[]
+  ): Promise<AntigravityInspectionActionsResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.post<AntigravityInspectionActionsResponse>(
+        buildUrl(base, `/v0/management/antigravity-inspection/runs/${runId}/actions`),
         { resultIds },
         {
           timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,

@@ -71,6 +71,9 @@ func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Re
 	if err := model.ValidateCodexInspectionConfig(submitted.CodexInspection); err != nil {
 		return Response{}, err
 	}
+	if err := model.ValidateAntigravityInspectionConfig(submitted.AntigravityInspection); err != nil {
+		return Response{}, err
+	}
 	next := s.MergeSubmittedManagerConfig(current, submitted)
 	if source == SourceEnv && ManagerConfigConnectionDiffers(current, next) {
 		return Response{}, errors.New("connection setup is managed by environment variables")
@@ -215,7 +218,8 @@ func (s *Service) DefaultManagerConfig() store.ManagerConfig {
 			QueryLimit:     PositiveOrDefault(s.cfg.QueryLimit, 50000, 50000),
 			TLSSkipVerify:  s.cfg.TLSSkipVerify,
 		},
-		CodexInspection: store.DefaultCodexInspectionConfig(),
+		CodexInspection:       store.DefaultCodexInspectionConfig(),
+		AntigravityInspection: store.DefaultAntigravityInspectionConfig(),
 	}
 }
 
@@ -239,6 +243,7 @@ func (s *Service) MergeSubmittedManagerConfig(base store.ManagerConfig, submitte
 	next.Collector.TLSSkipVerify = submitted.Collector.TLSSkipVerify
 
 	next.CodexInspection = store.NormalizeCodexInspectionConfig(submitted.CodexInspection, next.CodexInspection)
+	next.AntigravityInspection = store.NormalizeAntigravityInspectionConfig(submitted.AntigravityInspection, next.AntigravityInspection)
 
 	next.ExternalUsageService.Enabled = false
 	next.ExternalUsageService.ServiceBase = ""

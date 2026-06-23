@@ -6,6 +6,7 @@ import (
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/app"
 	accountactioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/accountaction"
+	antigravityinspectioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/antigravityinspection"
 	apikeyaliascontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/apikeyalias"
 	automationcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/automation"
 	codexinspectioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/codexinspection"
@@ -36,6 +37,7 @@ func New(appCtx *app.Context) http.Handler {
 	automationHandler := automationcontroller.New(appCtx)
 	quotaCooldownHandler := &quotacooldowncontroller.Handler{App: appCtx}
 	codexInspectionHandler := &codexinspectioncontroller.Handler{App: appCtx}
+	antigravityInspectionHandler := &antigravityinspectioncontroller.Handler{App: appCtx}
 	dashboardHandler := &dashboardcontroller.Handler{App: appCtx}
 	monitoringHandler := &monitoringcontroller.Handler{App: appCtx}
 	proxyHandler := &proxycontroller.Handler{App: appCtx}
@@ -50,7 +52,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/usage-service/quota-cooldowns", middleware.WithCORS(appCtx.Config, quotaCooldownHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
-	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, dashboardHandler, monitoringHandler, proxyHandler))
+	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, antigravityInspectionHandler, dashboardHandler, monitoringHandler, proxyHandler))
 
 	return middleware.Recovery(middleware.RequestLogger(mux))
 }
@@ -62,6 +64,7 @@ func rootHandler(
 	apiKeyAliasHandler *apikeyaliascontroller.Handler,
 	accountActionHandler *accountactioncontroller.Handler,
 	codexInspectionHandler *codexinspectioncontroller.Handler,
+	antigravityInspectionHandler *antigravityinspectioncontroller.Handler,
 	dashboardHandler *dashboardcontroller.Handler,
 	monitoringHandler *monitoringcontroller.Handler,
 	proxyHandler *proxycontroller.Handler,
@@ -86,6 +89,10 @@ func rootHandler(
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/codex-inspection") {
 			middleware.WithCORS(appCtx.Config, codexInspectionHandler.Handle)(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v0/management/antigravity-inspection") {
+			middleware.WithCORS(appCtx.Config, antigravityInspectionHandler.Handle)(w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/dashboard/") {

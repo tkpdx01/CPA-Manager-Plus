@@ -22,6 +22,7 @@ import { AccountActionCandidatesPage } from '@/pages/AccountActionCandidatesPage
 import { ModelPricesPage } from '@/pages/ModelPricesPage';
 import { CodexInspectionPage } from '@/pages/CodexInspectionPage';
 import { ServerCodexInspectionPage } from '@/pages/ServerCodexInspectionPage';
+import { ServerAntigravityInspectionPage } from '@/pages/ServerAntigravityInspectionPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { PluginResourcePage } from '@/pages/PluginResourcePage';
@@ -206,6 +207,17 @@ const mainRoutes = [
         fallback={<ServerCodexInspectionRouteFallback />}
       >
         <ServerCodexInspectionPage />
+      </FeatureGate>
+    ),
+  },
+  {
+    path: '/antigravity-inspection',
+    element: (
+      <FeatureGate
+        feature="serverCodexInspection"
+        fallback={<ServerCodexInspectionRouteFallback />}
+      >
+        <ServerAntigravityInspectionPage />
       </FeatureGate>
     ),
   },

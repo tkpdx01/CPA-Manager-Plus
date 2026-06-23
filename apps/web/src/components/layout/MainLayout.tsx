@@ -520,6 +520,12 @@ export function MainLayout() {
         shortLabel: navShortLabel('nav.codex_inspection', t('nav.codex_inspection')),
         icon: sidebarIcons.codexInspection,
       },
+      {
+        path: '/antigravity-inspection',
+        label: t('nav.antigravity_inspection'),
+        shortLabel: navShortLabel('nav.antigravity_inspection', t('nav.antigravity_inspection')),
+        icon: sidebarIcons.codexInspection,
+      },
     ],
     operationNavItems,
     pluginResourceNavItems,

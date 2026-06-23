@@ -278,7 +278,7 @@ func (w *RateLimitAutoDisableWorker) enableDue(ctx context.Context, now time.Tim
 }
 
 func (w *RateLimitAutoDisableWorker) recoverCooldown(ctx context.Context, baseURL string, managementKey string, item store.QuotaCooldown, now time.Time) {
-	if item.Owner != model.QuotaCooldownOwnerUsage429 {
+	if !isKnownCooldownOwner(item.Owner) {
 		reason := "unknown owner"
 		_ = w.store.MarkQuotaCooldownSkipped(ctx, item.ID, reason)
 		log.Printf("[quota-auto-disable] skip cooldown recovery id=%d authFile=%q reason=%s owner=%q", item.ID, item.AuthFileName, reason, item.Owner)
@@ -318,6 +318,10 @@ func (w *RateLimitAutoDisableWorker) recoverCooldown(ctx context.Context, baseUR
 		return
 	}
 	log.Printf("[quota-auto-disable] enabled auth file %q after Codex usage-limit reset", item.AuthFileName)
+}
+
+func isKnownCooldownOwner(owner string) bool {
+	return owner == model.QuotaCooldownOwnerUsage429 || owner == model.QuotaCooldownOwnerAntigravityInspection
 }
 
 func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, managementKey string, now time.Time) (quotaAutoDisableCandidate, bool) {
