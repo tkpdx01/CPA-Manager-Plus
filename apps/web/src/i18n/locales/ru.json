@@ -933,7 +933,9 @@
     "empty_models": "Данные по квоте отсутствуют",
     "refresh_available": "Доступно обновление",
     "refresh_button": "Обновить квоту",
-    "fetch_all": "Получить все"
+    "fetch_all": "Получить все",
+    "claude_model": "{{name}}",
+    "claude_window": "Claude {{name}}"
   },
   "antigravity_subscription": {
     "subscription_label": "Подписка",
@@ -1785,6 +1787,7 @@
     "codex_inspection_settings_reset": "Настройки проверки сброшены к значениям по умолчанию",
     "codex_inspection_settings_reset_button": "Восстановить по умолчанию",
     "codex_inspection_settings_target_type_label": "Целевой тип",
+    "codex_inspection_settings_target_type_hint": "Используйте codex для проверки Codex; используйте antigravity, чтобы проверять только квоту моделей Claude в Antigravity и игнорировать квоту Gemini.",
     "codex_inspection_settings_workers_label": "Потоки проверки",
     "codex_inspection_settings_delete_workers_label": "Потоки операций",
     "codex_inspection_settings_timeout_label": "Таймаут запроса (мс)",

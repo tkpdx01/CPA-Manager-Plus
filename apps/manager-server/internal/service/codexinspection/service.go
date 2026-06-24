@@ -31,7 +31,15 @@ const (
 	codexMinMonthWindow = 28 * 24 * 60 * 60
 	codexMaxMonthWindow = 31 * 24 * 60 * 60
 	maxStoredBodyText   = 2048
+
+	antigravityDefaultProjectID = "bamboo-precept-lgxtn"
 )
+
+var antigravityQuotaURLs = []string{
+	"https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+	"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+	"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+}
 
 var (
 	ErrRunAlreadyActive    = errors.New("codex inspection is already running")
@@ -596,6 +604,21 @@ func (s *Service) inspectSingleAccount(
 		return base
 	}
 
+	if strings.EqualFold(settings.TargetType, "antigravity") {
+		return s.inspectAntigravityAccount(ctx, setup, settings, item, logger, base)
+	}
+
+	return s.inspectCodexAccount(ctx, setup, settings, item, logger, base)
+}
+
+func (s *Service) inspectCodexAccount(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+	logger runLogger,
+	base model.CodexInspectionResult,
+) model.CodexInspectionResult {
 	var response apiCallResponse
 	var err error
 	for attempt := 0; attempt <= settings.Retries; attempt++ {
@@ -682,6 +705,218 @@ func (s *Service) inspectSingleAccount(
 		"isQuota":        decision.IsQuota,
 	})
 	return base
+}
+
+func (s *Service) inspectAntigravityAccount(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+	logger runLogger,
+	base model.CodexInspectionResult,
+) model.CodexInspectionResult {
+	var response apiCallResponse
+	var err error
+	for attempt := 0; attempt <= settings.Retries; attempt++ {
+		response, err = s.requestAntigravityQuota(ctx, setup, settings, item)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		base.Action = "keep"
+		base.ActionReason = "Antigravity Claude 额度探测异常，保留账号"
+		base.Error = truncate(err.Error(), maxStoredBodyText)
+		base.ErrorKind = "request_error"
+		base.ErrorDetail = truncate(err.Error(), maxStoredBodyText)
+		logger.warning(ctx, "Antigravity Claude 额度探测异常，保留账号", map[string]any{
+			"fileName":       item.FileName,
+			"displayAccount": item.DisplayAccount,
+			"error":          err.Error(),
+		})
+		return base
+	}
+	if !response.HasStatusCode {
+		base.Action = "keep"
+		base.ActionReason = "探测响应缺少 status_code，保留账号"
+		base.Error = "响应缺少 status_code"
+		base.ErrorKind = "missing_status"
+		base.ErrorDetail = firstNonEmpty(truncate(response.BodyText, maxStoredBodyText), "响应缺少 status_code")
+		logger.warning(ctx, "Antigravity Claude 额度探测未返回 status_code，保留账号", map[string]any{
+			"fileName":       item.FileName,
+			"displayAccount": item.DisplayAccount,
+			"body":           truncate(response.BodyText, maxStoredBodyText),
+		})
+		return base
+	}
+
+	statusCode := response.StatusCode
+	base.StatusCode = &statusCode
+	payload := parseAntigravityPayload(response.Body)
+	if payload == nil {
+		payload = parseAntigravityPayload(response.BodyText)
+	}
+	windows := buildAntigravityClaudeQuotaWindows(payload)
+	usedPercent := maxQuotaWindowUsedPercent(windows)
+	decision := resolveAntigravityProbeAction(item, statusCode, response.BodyText, usedPercent, settings.UsedPercentThreshold, len(windows) > 0)
+
+	base.Action = decision.Action
+	base.ActionReason = decision.ActionReason
+	base.UsedPercent = decision.UsedPercent
+	base.IsQuota = decision.IsQuota
+	base.PlanType = "claude"
+	base.QuotaWindows = windows
+	base.Error = ""
+	if statusCode < 200 || statusCode >= 300 {
+		base.ErrorKind = "http_status"
+		base.ErrorDetail = firstNonEmpty(truncate(response.BodyText, maxStoredBodyText), fmt.Sprintf("HTTP %d", statusCode))
+	}
+	if len(windows) == 0 && statusCode >= 200 && statusCode < 300 {
+		base.ErrorKind = "empty_quota"
+		base.ErrorDetail = "Antigravity 响应中未找到 Claude 模型额度，已忽略 Gemini 额度"
+	}
+
+	level := "info"
+	switch decision.Action {
+	case "disable":
+		level = "warning"
+	case "enable":
+		level = "success"
+	case "reauth":
+		level = "warning"
+	}
+	logger.log(ctx, level, "Antigravity Claude 额度探测完成", map[string]any{
+		"fileName":       item.FileName,
+		"displayAccount": item.DisplayAccount,
+		"action":         decision.Action,
+		"statusCode":     statusCode,
+		"usedPercent":    nullableFloat(decision.UsedPercent),
+		"isQuota":        decision.IsQuota,
+		"claudeWindows":  len(windows),
+	})
+	return base
+}
+
+func (s *Service) requestAntigravityQuota(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+) (apiCallResponse, error) {
+	var lastResponse apiCallResponse
+	hasResponse := false
+	var fallbackResponse apiCallResponse
+	hasFallbackResponse := false
+	var lastErr error
+	for _, quotaURL := range antigravityQuotaURLs {
+		response, _, err := s.requestAntigravityQuotaAt(ctx, setup, settings, item, quotaURL, "/v0/management/api-call")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		lastResponse = response
+		hasResponse = true
+		if response.HasStatusCode && response.StatusCode >= 200 && response.StatusCode < 300 {
+			payload := parseAntigravityPayload(response.Body)
+			if payload == nil {
+				payload = parseAntigravityPayload(response.BodyText)
+			}
+			if len(buildAntigravityClaudeQuotaWindows(payload)) > 0 {
+				return response, nil
+			}
+			if !hasFallbackResponse {
+				fallbackResponse = response
+				hasFallbackResponse = true
+			}
+			continue
+		}
+		if response.HasStatusCode && response.StatusCode != http.StatusForbidden && response.StatusCode != http.StatusNotFound {
+			return response, nil
+		}
+	}
+	if hasFallbackResponse {
+		return fallbackResponse, nil
+	}
+	if hasResponse {
+		return lastResponse, nil
+	}
+	if lastErr != nil {
+		return apiCallResponse{}, lastErr
+	}
+	return apiCallResponse{}, errors.New("Antigravity Claude quota request failed")
+}
+
+func (s *Service) requestAntigravityQuotaAt(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+	quotaURL string,
+	path string,
+) (apiCallResponse, int, error) {
+	projectID := resolveAntigravityProjectID(item.File)
+	requestBody, err := json.Marshal(map[string]any{"project": projectID})
+	if err != nil {
+		return apiCallResponse{}, 0, err
+	}
+	headers := map[string]string{
+		"Authorization": "Bearer $TOKEN$",
+		"Content-Type":  "application/json",
+		"User-Agent":    resolveAntigravityUserAgent(settings.UserAgent),
+	}
+	payload := map[string]any{
+		"authIndex": item.AuthIndex,
+		"method":    http.MethodPost,
+		"url":       quotaURL,
+		"header":    headers,
+		"data":      string(requestBody),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return apiCallResponse{}, 0, err
+	}
+	requestCtx := ctx
+	cancel := func() {}
+	if settings.Timeout > 0 {
+		requestCtx, cancel = context.WithTimeout(ctx, time.Duration(settings.Timeout)*time.Millisecond)
+	}
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(
+		requestCtx,
+		http.MethodPost,
+		cpa.NormalizeBaseURL(setup.CPAUpstreamURL)+path,
+		bytes.NewReader(data),
+	)
+	if err != nil {
+		return apiCallResponse{}, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+setup.ManagementKey)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := s.client.Do(req)
+	if err != nil {
+		return apiCallResponse{}, 0, err
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 8*1024*1024))
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return apiCallResponse{}, res.StatusCode, fmt.Errorf("api-call failed: %s %s", res.Status, truncate(string(body), maxStoredBodyText))
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return apiCallResponse{}, res.StatusCode, err
+	}
+	statusRaw, hasStatus := firstValue(raw, "status_code", "statusCode")
+	statusCode := int(readFloat(statusRaw, 0))
+	bodyRaw, _ := firstValue(raw, "body")
+	bodyText, bodyValue := normalizeBody(bodyRaw)
+	return apiCallResponse{
+		StatusCode:    statusCode,
+		HasStatusCode: hasStatus && strings.TrimSpace(fmt.Sprint(statusRaw)) != "",
+		BodyText:      bodyText,
+		Body:          bodyValue,
+	}, res.StatusCode, nil
 }
 
 func (s *Service) requestCodexUsage(
@@ -887,8 +1122,8 @@ func (s *Service) executeAction(ctx context.Context, setup store.Setup, item mod
 	switch item.Action {
 	case "delete":
 		return s.deleteAuthFileOnly(ctx, setup, "/v0/management/auth-files", item.FileName)
-	case "disable", "enable":
-		disabled := item.Action == "disable"
+	case "disable", "enable", "reauth":
+		disabled := item.Action == "disable" || item.Action == "reauth"
 		payload := map[string]any{"name": item.FileName, "disabled": disabled}
 		err, _ := s.patchAuthFile(ctx, setup, "/v0/management/auth-files/status", payload)
 		return err
@@ -1155,7 +1390,7 @@ func resolveAutoActionResults(mode string, results []model.CodexInspectionResult
 }
 
 func resolveExecutableAction(mode string, action string) string {
-	if mode == model.CodexInspectionAutoActionDisable && action == "delete" {
+	if mode == model.CodexInspectionAutoActionDisable && (action == "delete" || action == "reauth") {
 		return "disable"
 	}
 	return action
@@ -1221,9 +1456,9 @@ func allowAutoAction(mode string, result model.CodexInspectionResult) bool {
 	case model.CodexInspectionAutoActionEnable:
 		return result.Action == "enable"
 	case model.CodexInspectionAutoActionDisable:
-		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
+		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete" || result.Action == "reauth"
 	case model.CodexInspectionAutoActionDelete:
-		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
+		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete" || result.Action == "reauth"
 	default:
 		return false
 	}
@@ -1284,7 +1519,7 @@ func selectManualActionItems(
 }
 
 func isExecutableInspectionAction(action string) bool {
-	return action == "delete" || action == "disable" || action == "enable"
+	return action == "delete" || action == "disable" || action == "enable" || action == "reauth"
 }
 
 func (s *Service) validateManualActionItems(
@@ -1725,6 +1960,239 @@ func parseIDTokenPayload(value any) map[string]any {
 		}
 	}
 	return nil
+}
+
+func resolveAntigravityProjectID(file authFile) string {
+	metadata := readMap(file, "metadata")
+	attributes := readMap(file, "attributes")
+	installed := readMap(file, "installed")
+	web := readMap(file, "web")
+	candidates := []string{
+		readString(file, "project_id", "projectId"),
+		readString(metadata, "project_id", "projectId"),
+		readString(attributes, "project_id", "projectId", "gemini_virtual_project", "geminiVirtualProject"),
+		readString(installed, "project_id", "projectId"),
+		readString(web, "project_id", "projectId"),
+	}
+	for _, candidate := range candidates {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return trimmed
+		}
+	}
+	return antigravityDefaultProjectID
+}
+
+func resolveAntigravityUserAgent(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || strings.Contains(strings.ToLower(trimmed), "codex_cli") {
+		return "antigravity/1.11.5 windows/amd64"
+	}
+	return trimmed
+}
+
+func parseAntigravityPayload(input any) map[string]any {
+	payload := parseRecord(input)
+	if payload == nil {
+		return nil
+	}
+	if _, ok := payload["models"]; ok {
+		return payload
+	}
+	if _, ok := payload["groups"]; ok {
+		return payload
+	}
+	nested := parseRecord(payload["body"])
+	if nested != nil {
+		return nested
+	}
+	return payload
+}
+
+func buildAntigravityClaudeQuotaWindows(payload map[string]any) []model.CodexInspectionQuotaWindow {
+	if payload == nil {
+		return nil
+	}
+	if windows := buildAntigravityClaudeQuotaWindowsFromModels(readMap(payload, "models")); len(windows) > 0 {
+		return windows
+	}
+	return buildAntigravityClaudeQuotaWindowsFromGroups(readMapSlice(payload, "groups"))
+}
+
+func buildAntigravityClaudeQuotaWindowsFromModels(models map[string]any) []model.CodexInspectionQuotaWindow {
+	if len(models) == 0 {
+		return nil
+	}
+	windows := make([]model.CodexInspectionQuotaWindow, 0)
+	for modelID, rawEntry := range models {
+		entry, ok := rawEntry.(map[string]any)
+		if !ok || !isAntigravityClaudeModel(modelID, entry) {
+			continue
+		}
+		remaining, ok := antigravityRemainingFraction(entry)
+		if !ok {
+			continue
+		}
+		usedPercent := ptrFloat(math.Max(0, math.Min(100, (1-remaining)*100)))
+		label := firstNonEmpty(readString(entry, "displayName", "display_name", "model"), modelID)
+		windows = append(windows, model.CodexInspectionQuotaWindow{
+			ID:          "antigravity-claude-" + firstNonEmpty(normalizeCodexWindowID(modelID), fmt.Sprintf("model-%d", len(windows)+1)),
+			LabelKey:    "antigravity_quota.claude_model",
+			LabelParams: map[string]any{"name": label},
+			UsedPercent: usedPercent,
+			ResetLabel:  formatAntigravityResetLabel(antigravityResetTime(entry)),
+		})
+	}
+	sort.Slice(windows, func(i, j int) bool { return windows[i].ID < windows[j].ID })
+	return windows
+}
+
+func buildAntigravityClaudeQuotaWindowsFromGroups(groups []map[string]any) []model.CodexInspectionQuotaWindow {
+	if len(groups) == 0 {
+		return nil
+	}
+	windows := make([]model.CodexInspectionQuotaWindow, 0)
+	for groupIndex, group := range groups {
+		groupLabel := firstNonEmpty(readString(group, "displayName", "display_name"), fmt.Sprintf("Claude %d", groupIndex+1))
+		groupSearch := strings.ToLower(groupLabel + " " + readString(group, "description"))
+		if !strings.Contains(groupSearch, "claude") && !strings.Contains(groupSearch, "anthropic") {
+			continue
+		}
+		buckets := readMapSlice(group, "buckets")
+		for bucketIndex, bucket := range buckets {
+			remaining, ok := antigravityRemainingFraction(bucket)
+			if !ok {
+				continue
+			}
+			usedPercent := ptrFloat(math.Max(0, math.Min(100, (1-remaining)*100)))
+			bucketID := firstNonEmpty(readString(bucket, "bucketId", "bucket_id"), fmt.Sprintf("bucket-%d", bucketIndex+1))
+			bucketLabel := firstNonEmpty(readString(bucket, "displayName", "display_name"), groupLabel)
+			id := fmt.Sprintf("antigravity-claude-%s-%s", firstNonEmpty(normalizeCodexWindowID(groupLabel), fmt.Sprintf("group-%d", groupIndex+1)), firstNonEmpty(normalizeCodexWindowID(bucketID), fmt.Sprintf("bucket-%d", bucketIndex+1)))
+			windows = append(windows, model.CodexInspectionQuotaWindow{
+				ID:          id,
+				LabelKey:    "antigravity_quota.claude_window",
+				LabelParams: map[string]any{"name": bucketLabel},
+				UsedPercent: usedPercent,
+				ResetLabel:  formatAntigravityResetLabel(firstNonEmpty(readString(bucket, "resetTime", "reset_time"), readString(group, "resetTime", "reset_time"))),
+			})
+		}
+	}
+	return windows
+}
+
+func isAntigravityClaudeModel(modelID string, entry map[string]any) bool {
+	searchText := strings.ToLower(strings.Join([]string{
+		modelID,
+		readString(entry, "displayName", "display_name"),
+		readString(entry, "model"),
+		readString(entry, "apiProvider", "api_provider"),
+		readString(entry, "modelProvider", "model_provider"),
+	}, " "))
+	return (strings.Contains(searchText, "claude") || strings.Contains(searchText, "anthropic")) &&
+		!strings.Contains(searchText, "gemini")
+}
+
+func antigravityRemainingFraction(entry map[string]any) (float64, bool) {
+	quotaInfo := readMap(entry, "quotaInfo", "quota_info")
+	remainingRaw, ok := firstValue(quotaInfo, "remainingFraction", "remaining_fraction", "remaining")
+	if !ok {
+		remainingRaw, ok = firstValue(entry, "remainingFraction", "remaining_fraction", "remaining")
+	}
+	if !ok || remainingRaw == nil {
+		return 0, false
+	}
+	remaining, err := parseAntigravityFraction(remainingRaw)
+	if err != nil {
+		return 0, false
+	}
+	return math.Max(0, math.Min(1, remaining)), true
+}
+
+func antigravityResetTime(entry map[string]any) string {
+	quotaInfo := readMap(entry, "quotaInfo", "quota_info")
+	return firstNonEmpty(
+		readString(quotaInfo, "resetTime", "reset_time"),
+		readString(entry, "resetTime", "reset_time"),
+	)
+}
+
+func parseAntigravityFraction(value any) (float64, error) {
+	switch typed := value.(type) {
+	case float64:
+		if typed > 1 && typed <= 100 {
+			return typed / 100, nil
+		}
+		return typed, nil
+	case int:
+		parsed := float64(typed)
+		if parsed > 1 && parsed <= 100 {
+			return parsed / 100, nil
+		}
+		return parsed, nil
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		percent := strings.HasSuffix(trimmed, "%")
+		parsed, err := strconvParseFloat(strings.TrimSuffix(trimmed, "%"))
+		if err != nil {
+			return 0, err
+		}
+		if percent || parsed > 1 && parsed <= 100 {
+			return parsed / 100, nil
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("unsupported Antigravity quota fraction %T", value)
+	}
+}
+
+func formatAntigravityResetLabel(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "-"
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+		return parsed.Local().Format("01/02 15:04")
+	}
+	if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return parsed.Local().Format("01/02 15:04")
+	}
+	return trimmed
+}
+
+func maxQuotaWindowUsedPercent(windows []model.CodexInspectionQuotaWindow) *float64 {
+	var max *float64
+	for _, window := range windows {
+		if window.UsedPercent == nil {
+			continue
+		}
+		if max == nil || *window.UsedPercent > *max {
+			value := *window.UsedPercent
+			max = &value
+		}
+	}
+	return max
+}
+
+func resolveAntigravityProbeAction(item account, statusCode int, bodyText string, usedPercent *float64, threshold float64, hasQuotaData bool) inspectionDecision {
+	if statusCode == http.StatusUnauthorized {
+		return resolveUnauthorizedProbeAction(bodyText, usedPercent)
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return inspectionDecision{Action: "keep", ActionReason: "Antigravity Claude 额度响应异常，保留账号", UsedPercent: usedPercent, IsQuota: false}
+	}
+	if !hasQuotaData {
+		return inspectionDecision{Action: "keep", ActionReason: "未找到 Claude 模型额度，已忽略 Gemini 额度", UsedPercent: usedPercent, IsQuota: false}
+	}
+	overThreshold := usedPercent != nil && *usedPercent >= threshold
+	if overThreshold {
+		if item.Disabled {
+			return inspectionDecision{Action: "keep", ActionReason: "Antigravity Claude 额度达到阈值，但账号已禁用", UsedPercent: usedPercent, IsQuota: true}
+		}
+		return inspectionDecision{Action: "disable", ActionReason: "Antigravity Claude 额度达到阈值，建议禁用账号", UsedPercent: usedPercent, IsQuota: true}
+	}
+	if item.Disabled {
+		return inspectionDecision{Action: "enable", ActionReason: "Antigravity Claude 额度仍可用，建议重新启用", UsedPercent: usedPercent, IsQuota: false}
+	}
+	return inspectionDecision{Action: "keep", ActionReason: "Antigravity Claude 额度仍可用，无需处理", UsedPercent: usedPercent, IsQuota: false}
 }
 
 func parseRateLimit(raw map[string]any) *codexRateLimit {

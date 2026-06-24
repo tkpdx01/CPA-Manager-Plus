@@ -84,6 +84,132 @@ func TestRunPersistsLogsResultsAndDetail(t *testing.T) {
 	}
 }
 
+func TestRunInspectsAntigravityClaudeQuotaOnly(t *testing.T) {
+	var requestedURL string
+	var requestedMethod string
+	var requestedData map[string]string
+	var requestedUserAgent string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"antigravity-auth.json","auth_index":"ag-1","provider":"antigravity","account":"alice@example.com","project_id":"project-direct","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
+			var payload struct {
+				Method string            `json:"method"`
+				URL    string            `json:"url"`
+				Header map[string]string `json:"header"`
+				Data   string            `json:"data"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode api-call payload: %v", err)
+			}
+			requestedURL = payload.URL
+			requestedMethod = payload.Method
+			requestedUserAgent = payload.Header["User-Agent"]
+			if err := json.Unmarshal([]byte(payload.Data), &requestedData); err != nil {
+				t.Fatalf("decode antigravity data: %v", err)
+			}
+			_, _ = w.Write([]byte(`{
+				"status_code":200,
+				"body":{
+					"models":{
+						"claude-sonnet-4-6":{"displayName":"Claude Sonnet 4.6","apiProvider":"anthropic","quotaInfo":{"remainingFraction":0,"resetTime":"2026-06-24T10:00:00Z"}},
+						"gemini-3-pro-high":{"displayName":"Gemini 3 Pro","apiProvider":"google_gemini","quotaInfo":{"remainingFraction":0.95,"resetTime":"2026-06-24T09:00:00Z"}}
+					}
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.TargetType = "antigravity"
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{TriggerType: "manual", TriggerKey: "manual"})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if requestedMethod != http.MethodPost || !strings.Contains(requestedURL, "fetchAvailableModels") {
+		t.Fatalf("api-call request method=%q url=%q, want Antigravity fetchAvailableModels POST", requestedMethod, requestedURL)
+	}
+	if requestedData["project"] != "project-direct" {
+		t.Fatalf("project = %q, want project-direct", requestedData["project"])
+	}
+	if !strings.Contains(requestedUserAgent, "antigravity/") {
+		t.Fatalf("user agent = %q, want antigravity user agent", requestedUserAgent)
+	}
+	if result.Run.ProbeSetCount != 1 || len(result.Results) != 1 {
+		t.Fatalf("probe=%d results=%d, want 1/1", result.Run.ProbeSetCount, len(result.Results))
+	}
+	item := result.Results[0]
+	if item.Provider != "antigravity" || item.Action != "disable" || !item.IsQuota {
+		t.Fatalf("result = %#v, want antigravity disable quota", item)
+	}
+	if item.UsedPercent == nil || *item.UsedPercent != 100 {
+		t.Fatalf("used percent = %#v, want 100", item.UsedPercent)
+	}
+	if len(item.QuotaWindows) != 1 {
+		t.Fatalf("quota windows = %#v, want only Claude window", item.QuotaWindows)
+	}
+	window := item.QuotaWindows[0]
+	if !strings.Contains(window.ID, "claude") || window.LabelParams["name"] != "Claude Sonnet 4.6" {
+		t.Fatalf("quota window = %#v, want Claude only", window)
+	}
+}
+
+func TestRunKeepsAntigravityGeminiOnlyQuota(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"antigravity-auth.json","auth_index":"ag-1","provider":"antigravity","account":"alice@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{
+				"status_code":200,
+				"body":{
+					"models":{
+						"gemini-3-pro-high":{"displayName":"Gemini 3 Pro","apiProvider":"google_gemini","quotaInfo":{"remainingFraction":0,"resetTime":"2026-06-24T09:00:00Z"}}
+					}
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.TargetType = "antigravity"
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{TriggerType: "manual", TriggerKey: "manual"})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("results = %#v, want 1", result.Results)
+	}
+	item := result.Results[0]
+	if item.Action != "keep" || item.IsQuota || len(item.QuotaWindows) != 0 {
+		t.Fatalf("result = %#v, want keep and ignore Gemini quota", item)
+	}
+	if item.ErrorKind != "empty_quota" || !strings.Contains(item.ActionReason, "忽略 Gemini") {
+		t.Fatalf("empty quota handling = %#v, want Gemini ignored message", item)
+	}
+}
+
 func TestRunPersistsPlanQuotaWindowsAndErrorDetail(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -1048,6 +1174,60 @@ func TestCodexInspectionScheduleDue(t *testing.T) {
 	timePointCfg.Schedule.TimeZone = "Asia/Shanghai"
 	if !model.CodexInspectionScheduleDue(now, time.Time{}, timePointCfg) {
 		t.Fatal("expected time_points schedule to be due")
+	}
+}
+
+func TestRunAutoDisableDisablesReauthAccounts(t *testing.T) {
+	var patchCalled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-expired.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":401,"body":"{\"message\":\"provided authentication token is expired\"}"}`))
+		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodPatch:
+			patchCalled = true
+			var payload struct {
+				Name     string `json:"name"`
+				Disabled bool   `json:"disabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode patch payload: %v", err)
+			}
+			if payload.Name != "auth-expired.json" || !payload.Disabled {
+				t.Fatalf("patch payload = %#v, want disable auth-expired.json", payload)
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionDisable
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{TriggerType: "manual", TriggerKey: "manual"})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if !patchCalled {
+		t.Fatal("auto action did not disable reauth account")
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("results = %#v, want 1", result.Results)
+	}
+	item := result.Results[0]
+	if item.Action != "reauth" {
+		t.Fatalf("action = %q, want reauth", item.Action)
+	}
+	if item.ExecutedAction != "disable" || item.ActionStatus != model.CodexInspectionActionStatusSuccess {
+		t.Fatalf("executed = %q status = %q, want disable success", item.ExecutedAction, item.ActionStatus)
 	}
 }
 

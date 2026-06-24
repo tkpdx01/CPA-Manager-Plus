@@ -88,6 +88,7 @@ export function InspectionConfigFields({
             <Input
               id="targetType"
               label={t('monitoring.codex_inspection_settings_target_type_label')}
+              hint={t('monitoring.codex_inspection_settings_target_type_hint')}
               error={errors.targetType}
               value={draft.targetType}
               onChange={(event) => onFieldChange('targetType', event.target.value)}

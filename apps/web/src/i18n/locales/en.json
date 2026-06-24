@@ -937,7 +937,9 @@
     "empty_models": "No quota data available",
     "refresh_available": "Refresh available",
     "refresh_button": "Refresh Quota",
-    "fetch_all": "Fetch All"
+    "fetch_all": "Fetch All",
+    "claude_model": "{{name}}",
+    "claude_window": "Claude {{name}}"
   },
   "antigravity_subscription": {
     "subscription_label": "Subscription",
@@ -1789,6 +1791,7 @@
     "codex_inspection_settings_reset": "Inspection settings restored to defaults",
     "codex_inspection_settings_reset_button": "Restore Defaults",
     "codex_inspection_settings_target_type_label": "Target Type",
+    "codex_inspection_settings_target_type_hint": "Use codex for Codex inspection; use antigravity to inspect only Claude model quota in Antigravity and ignore Gemini quota.",
     "codex_inspection_settings_workers_label": "Probe Workers",
     "codex_inspection_settings_delete_workers_label": "Action Workers",
     "codex_inspection_settings_timeout_label": "Request Timeout (ms)",

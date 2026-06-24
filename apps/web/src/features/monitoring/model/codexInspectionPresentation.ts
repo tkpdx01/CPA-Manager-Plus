@@ -23,7 +23,7 @@ export type InspectionLogEntry = CodexInspectionStoredLogEntry;
 export type ExecutionTriggerSource = 'manual' | 'auto';
 
 export type CodexInspectionProblemActionMode = 'none' | 'disable' | 'delete';
-export type ServerCodexInspectionAction = 'delete' | 'disable' | 'enable';
+export type ServerCodexInspectionAction = 'delete' | 'disable' | 'enable' | 'reauth';
 export type ServerCodexInspectionActionStatus =
   | 'none'
   | 'pending'
@@ -142,7 +142,7 @@ export const formatActionLabel = (action: CodexInspectionAction, t: TFunction) =
 export const isServerCodexInspectionAction = (
   action: string
 ): action is ServerCodexInspectionAction =>
-  action === 'delete' || action === 'disable' || action === 'enable';
+  action === 'delete' || action === 'disable' || action === 'enable' || action === 'reauth';
 
 export const normalizeServerCodexInspectionActionStatus = (
   item: Pick<CodexInspectionResult, 'action' | 'actionStatus'>

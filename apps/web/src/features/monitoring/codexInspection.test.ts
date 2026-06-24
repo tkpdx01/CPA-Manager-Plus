@@ -286,7 +286,7 @@ describe('resolveCodexInspectionAutoActionItems', () => {
     expect(items.map((item) => [item.fileName, item.action])).toEqual([['enable.json', 'enable']]);
   });
 
-  it('turns delete suggestions into disable actions in auto disable mode', () => {
+  it('turns delete and reauth suggestions into disable actions in auto disable mode', () => {
     const items = resolveCodexInspectionAutoActionItems('disable', [
       deleteItem,
       disableItem,
@@ -298,10 +298,11 @@ describe('resolveCodexInspectionAutoActionItems', () => {
       ['delete.json', 'disable'],
       ['disable.json', 'disable'],
       ['enable.json', 'enable'],
+      ['reauth.json', 'disable'],
     ]);
   });
 
-  it('keeps delete, disable, and enable suggestions in auto delete mode', () => {
+  it('keeps delete, disable, enable, and reauth suggestions in auto delete mode', () => {
     const items = resolveCodexInspectionAutoActionItems('delete', [
       deleteItem,
       disableItem,
@@ -313,6 +314,7 @@ describe('resolveCodexInspectionAutoActionItems', () => {
       ['delete.json', 'delete'],
       ['disable.json', 'disable'],
       ['enable.json', 'enable'],
+      ['reauth.json', 'reauth'],
     ]);
   });
 });
@@ -425,7 +427,7 @@ describe('Server Codex inspection action presentation', () => {
       { id: 4, fileName: 'auth-c.json', action: 'reauth' },
     ]);
 
-    expect(Array.from(canonicalIds)).toEqual([3]);
+    expect(Array.from(canonicalIds)).toEqual([3, 4]);
   });
 
   it('suppresses file-level server actions when same-file suggestions conflict', () => {

@@ -123,7 +123,7 @@ export const executeCodexInspectionActions = async ({
 }: ExecuteCodexInspectionActionsOptions): Promise<CodexInspectionExecutionResult> => {
   const dedupedItems = dedupeExecutionItems(items);
   const deleteItems = dedupedItems.filter((item) => item.action === 'delete');
-  const disableItems = dedupedItems.filter((item) => item.action === 'disable');
+  const disableItems = dedupedItems.filter((item) => item.action === 'disable' || item.action === 'reauth');
   const enableItems = dedupedItems.filter((item) => item.action === 'enable');
   const outcomes: CodexInspectionExecutionOutcome[] = [];
 

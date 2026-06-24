@@ -926,7 +926,9 @@
     "empty_models": "暂无额度数据",
     "refresh_available": "可刷新",
     "refresh_button": "刷新额度",
-    "fetch_all": "获取全部"
+    "fetch_all": "获取全部",
+    "claude_model": "{{name}}",
+    "claude_window": "Claude {{name}}"
   },
   "antigravity_subscription": {
     "subscription_label": "订阅",
@@ -1747,6 +1749,7 @@
     "codex_inspection_settings_reset": "已恢复默认巡检配置",
     "codex_inspection_settings_reset_button": "恢复默认",
     "codex_inspection_settings_target_type_label": "目标类型",
+    "codex_inspection_settings_target_type_hint": "填写 codex 巡检 Codex；填写 antigravity 时仅巡检 Antigravity 中的 Claude 模型额度，并忽略 Gemini 额度。",
     "codex_inspection_settings_workers_label": "探测并发",
     "codex_inspection_settings_delete_workers_label": "操作并发",
     "codex_inspection_settings_timeout_label": "请求超时（ms）",

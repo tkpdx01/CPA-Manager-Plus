@@ -612,9 +612,20 @@ export const buildExecutionFailureMessage = (outcome: CodexInspectionExecutionOu
 export const isSuggestedAction = (item: CodexInspectionResultItem) => item.action !== 'keep';
 
 export const isExecutableAction = (item: CodexInspectionResultItem) =>
-  item.action === 'delete' || item.action === 'disable' || item.action === 'enable';
+  item.action === 'delete' || item.action === 'disable' || item.action === 'enable' ||
+  item.action === 'reauth';
 
 export const isReauthAction = (item: CodexInspectionResultItem) => item.action === 'reauth';
+
+export const toReauthDisableExecutionItem = (
+  item: CodexInspectionResultItem
+): CodexInspectionResultItem => ({
+  ...item,
+  action: 'reauth',
+  actionReason: item.actionReason
+    ? `${item.actionReason}；用户选择禁用需重新登录账号`
+    : '用户选择禁用需重新登录账号',
+});
 
 export const toReauthDeleteExecutionItem = (
   item: CodexInspectionResultItem
@@ -639,9 +650,9 @@ export const resolveCodexInspectionAutoActionItems = (
 
   if (normalizedMode === 'disable') {
     return items
-      .filter((item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable')
+      .filter((item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable' || item.action === 'reauth')
       .map((item) =>
-        item.action === 'delete'
+        item.action === 'delete' || item.action === 'reauth'
           ? {
               ...item,
               action: 'disable',
@@ -653,7 +664,7 @@ export const resolveCodexInspectionAutoActionItems = (
       );
   }
 
-  return items.filter((item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable');
+  return items.filter((item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable' || item.action === 'reauth');
 };
 
 export const isCodexInspectionStoppedError = (

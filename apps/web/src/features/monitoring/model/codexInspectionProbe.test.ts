@@ -1,13 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiCallApi } from '@/services/api/apiCall';
 import { requestCodexUsageRaw } from '@/services/api/codexQuota';
+import { resolveAntigravityProjectId } from '@/utils/quota';
 import { DEFAULT_CODEX_INSPECTION_SETTINGS } from './codexInspectionSettings';
 import { inspectSingleAccount, toInspectionAccount } from './codexInspectionProbe';
+
+vi.mock('@/services/api/apiCall', () => ({
+  apiCallApi: { request: vi.fn() },
+}));
 
 vi.mock('@/services/api/codexQuota', () => ({
   requestCodexUsageRaw: vi.fn(),
 }));
 
+vi.mock('@/utils/quota', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/quota')>();
+  return {
+    ...actual,
+    resolveAntigravityProjectId: vi.fn(),
+  };
+});
+
 const mockRequestCodexUsageRaw = vi.mocked(requestCodexUsageRaw);
+const mockApiCallRequest = vi.mocked(apiCallApi.request);
+const mockResolveAntigravityProjectId = vi.mocked(resolveAntigravityProjectId);
 
 const baseAccount = toInspectionAccount({
   name: 'codex-auth.json',
@@ -56,6 +72,9 @@ const createUsageResult = (usedPercent: number, extraWindows = {}) => ({
 describe('inspectSingleAccount', () => {
   beforeEach(() => {
     mockRequestCodexUsageRaw.mockReset();
+    mockApiCallRequest.mockReset();
+    mockResolveAntigravityProjectId.mockReset();
+    mockResolveAntigravityProjectId.mockResolvedValue('project-test');
   });
 
   it('keeps an enabled account when the monthly Codex quota is still available', async () => {
@@ -261,13 +280,101 @@ describe('inspectSingleAccount', () => {
     ]);
   });
 
-  it('keeps accounts when the probe request fails and preserves error detail', async () => {
-    mockRequestCodexUsageRaw.mockRejectedValue(new Error('network failed'));
+  it('inspects only Claude quota for Antigravity accounts', async () => {
+    const antigravityAccount = toInspectionAccount({
+      name: 'antigravity-auth.json',
+      type: 'antigravity',
+      auth_index: 'ag-1',
+      account: 'ag@example.test',
+    });
+    mockApiCallRequest.mockResolvedValue({
+      statusCode: 200,
+      hasStatusCode: true,
+      header: {},
+      bodyText: '',
+      body: {
+        models: {
+          'claude-sonnet-4-6': {
+            displayName: 'Claude Sonnet 4.6',
+            apiProvider: 'API_PROVIDER_ANTHROPIC_VERTEX',
+            quotaInfo: {
+              remainingFraction: 0,
+              resetTime: '2026-06-24T10:00:00Z',
+            },
+          },
+          'gemini-3-pro-high': {
+            displayName: 'Gemini 3 Pro',
+            apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+            quotaInfo: {
+              remainingFraction: 1,
+              resetTime: '2026-06-24T09:00:00Z',
+            },
+          },
+        },
+      },
+    });
 
-    const result = await inspectSingleAccount(baseAccount, settings);
+    const result = await inspectSingleAccount(antigravityAccount, {
+      ...settings,
+      targetType: 'antigravity',
+    });
+
+    expect(mockApiCallRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authIndex: 'ag-1',
+        method: 'POST',
+        data: JSON.stringify({ project: 'project-test' }),
+      }),
+      expect.any(Object)
+    );
+    expect(result.action).toBe('disable');
+    expect(result.actionReason).toBe('Antigravity Claude 额度达到阈值，建议禁用账号');
+    expect(result.isQuota).toBe(true);
+    expect(result.usedPercent).toBe(100);
+    expect(result.planType).toBe('claude');
+    expect(result.quotaWindows).toHaveLength(1);
+    expect(result.quotaWindows?.[0]).toMatchObject({
+      labelKey: 'antigravity_quota.claude_model',
+      labelParams: { name: 'Claude Sonnet 4.6' },
+      usedPercent: 100,
+    });
+  });
+
+  it('keeps Antigravity accounts when only Gemini quota is returned', async () => {
+    const antigravityAccount = toInspectionAccount({
+      name: 'antigravity-auth.json',
+      type: 'antigravity',
+      auth_index: 'ag-1',
+      account: 'ag@example.test',
+    });
+    mockApiCallRequest.mockResolvedValue({
+      statusCode: 200,
+      hasStatusCode: true,
+      header: {},
+      bodyText: '',
+      body: {
+        models: {
+          'gemini-3-pro-high': {
+            displayName: 'Gemini 3 Pro',
+            apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+            quotaInfo: {
+              remainingFraction: 0,
+              resetTime: '2026-06-24T09:00:00Z',
+            },
+          },
+        },
+      },
+    });
+
+    const result = await inspectSingleAccount(antigravityAccount, {
+      ...settings,
+      targetType: 'antigravity',
+    });
 
     expect(result.action).toBe('keep');
-    expect(result.errorKind).toBe('request_error');
-    expect(result.errorDetail).toBe('network failed');
+    expect(result.actionReason).toBe('未找到 Claude 模型额度，已忽略 Gemini 额度');
+    expect(result.isQuota).toBe(false);
+    expect(result.quotaWindows).toEqual([]);
+    expect(result.errorKind).toBe('empty_quota');
   });
 });
